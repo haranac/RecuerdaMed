@@ -1,10 +1,10 @@
 import React, { useState } from "react";
 import { supabase } from "./supabaseClient";
-import Med from "./med";
-import CardTemplate from "./cardTemplate";
+import Med from "./Med";
+import CardTemplate from "./CardTemplate";
 import BotonModoOscuro from "./BotonModoOscuro";
-import Citas from "./citas";
-import Estudios from "./estudios";
+import Citas from "./Citas";
+import Estudios from "./Estudios";
 
 const RecuerdaMed = ({ session, modoOscuro, setModoOscuro }) => {
   const [vista, setVista] = useState("inicio");
