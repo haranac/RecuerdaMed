@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { supabase } from "./supabaseClient";
-import Med from "./Med";
-import CardTemplate from "./CardTemplate";
+import Med from "./med";
+import CardTemplate from "./cardTemplate";
 import BotonModoOscuro from "./BotonModoOscuro";
 import Citas from "./citas";
 import Estudios from "./estudios";
