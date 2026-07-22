@@ -20,6 +20,7 @@ const Estudios = ({ session, modoOscuro }) => {
 
   const [cargando, setCargando] = useState(true)
   const [subiendo, setSubiendo] = useState(false)
+  const [abriendoId, setAbriendoId] = useState(null)
   const [eliminandoId, setEliminandoId] = useState(null)
 
   const [mensaje, setMensaje] = useState('')
@@ -29,6 +30,7 @@ const Estudios = ({ session, modoOscuro }) => {
 
   const cargarEstudios = async () => {
     if (!session?.user?.id) {
+      setEstudios([])
       setCargando(false)
       return
     }
@@ -36,20 +38,31 @@ const Estudios = ({ session, modoOscuro }) => {
     setCargando(true)
     setErrorMsg('')
 
-    const { data, error } = await supabase
-      .from('estudios_medicos')
-      .select('*')
-      .eq('user_id', session.user.id)
-      .order('created_at', { ascending: false })
+    try {
+      const { data, error } = await supabase
+        .from('estudios_medicos')
+        .select('*')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: false })
 
-    if (error) {
-      setErrorMsg(`No fue posible cargar los estudios: ${error.message}`)
-      setEstudios([])
-    } else {
+      if (error) {
+        throw new Error(error.message)
+      }
+
       setEstudios(data || [])
-    }
+    } catch (error) {
+      console.error('Error al cargar los estudios:', error)
 
-    setCargando(false)
+      setErrorMsg(
+        `No fue posible cargar los estudios: ${
+          error.message || 'Error desconocido'
+        }`
+      )
+
+      setEstudios([])
+    } finally {
+      setCargando(false)
+    }
   }
 
   useEffect(() => {
@@ -136,6 +149,7 @@ const Estudios = ({ session, modoOscuro }) => {
     try {
       const nombreOriginal = archivo.name
       const partesNombre = nombreOriginal.split('.')
+
       const extension =
         partesNombre.length > 1
           ? partesNombre.pop().toLowerCase()
@@ -143,8 +157,7 @@ const Estudios = ({ session, modoOscuro }) => {
             ? 'pdf'
             : 'jpg'
 
-      archivoPath =
-        `${session.user.id}/${crypto.randomUUID()}.${extension}`
+      archivoPath = `${session.user.id}/${crypto.randomUUID()}.${extension}`
 
       const { error: errorStorage } = await supabase.storage
         .from(BUCKET)
@@ -190,6 +203,8 @@ const Estudios = ({ session, modoOscuro }) => {
 
       setMensaje('El estudio médico fue guardado correctamente.')
     } catch (error) {
+      console.error('Error al subir el estudio:', error)
+
       setErrorMsg(
         error.message || 'Ocurrió un error inesperado al subir el estudio.'
       )
@@ -201,26 +216,109 @@ const Estudios = ({ session, modoOscuro }) => {
   const abrirEstudio = async (estudio) => {
     setErrorMsg('')
     setMensaje('')
+    setAbriendoId(estudio.id)
 
-    const { data, error } = await supabase.storage
-      .from(BUCKET)
-      .createSignedUrl(estudio.archivo_path, 300)
+    /*
+     * La pestaña se abre inmediatamente al presionar el botón.
+     * De esta forma, el navegador no la bloquea mientras se espera
+     * la respuesta de Supabase.
+     */
+    const nuevaVentana = window.open('about:blank', '_blank')
 
-    if (error) {
-      setErrorMsg(`No fue posible abrir el archivo: ${error.message}`)
+    if (!nuevaVentana) {
+      setErrorMsg(
+        'El navegador bloqueó la nueva pestaña. Permite las ventanas emergentes para este sitio.'
+      )
+
+      setAbriendoId(null)
       return
     }
 
-    if (!data?.signedUrl) {
-      setErrorMsg('No fue posible generar el enlace del archivo.')
-      return
-    }
+    nuevaVentana.opener = null
 
-    window.open(
-      data.signedUrl,
-      '_blank',
-      'noopener,noreferrer'
-    )
+    nuevaVentana.document.title = 'Preparando archivo'
+
+    nuevaVentana.document.body.innerHTML = `
+      <div
+        style="
+          min-height: 100vh;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background-color: #f9fafb;
+          font-family: Arial, sans-serif;
+          color: #374151;
+        "
+      >
+        <div style="text-align: center;">
+          <div
+            style="
+              width: 42px;
+              height: 42px;
+              margin: 0 auto 16px;
+              border: 4px solid #d1fae5;
+              border-top-color: #16a34a;
+              border-radius: 50%;
+              animation: girar 0.8s linear infinite;
+            "
+          ></div>
+
+          <p style="font-size: 16px; font-weight: bold;">
+            Preparando archivo...
+          </p>
+        </div>
+
+        <style>
+          @keyframes girar {
+            from {
+              transform: rotate(0deg);
+            }
+
+            to {
+              transform: rotate(360deg);
+            }
+          }
+        </style>
+      </div>
+    `
+
+    try {
+      if (!estudio?.archivo_path) {
+        throw new Error(
+          'El estudio no tiene una ruta de archivo registrada.'
+        )
+      }
+
+      const { data, error } = await supabase.storage
+        .from(BUCKET)
+        .createSignedUrl(estudio.archivo_path, 300)
+
+      if (error) {
+        throw new Error(error.message)
+      }
+
+      if (!data?.signedUrl) {
+        throw new Error(
+          'Supabase no pudo generar el enlace del archivo.'
+        )
+      }
+
+      nuevaVentana.location.replace(data.signedUrl)
+    } catch (error) {
+      console.error('Error al abrir el estudio:', error)
+
+      if (!nuevaVentana.closed) {
+        nuevaVentana.close()
+      }
+
+      setErrorMsg(
+        `No fue posible abrir el archivo: ${
+          error.message || 'Error desconocido'
+        }`
+      )
+    } finally {
+      setAbriendoId(null)
+    }
   }
 
   const eliminarEstudio = async (estudio) => {
@@ -229,6 +327,11 @@ const Estudios = ({ session, modoOscuro }) => {
     )
 
     if (!confirmar) return
+
+    if (!session?.user?.id) {
+      setErrorMsg('No existe una sesión activa.')
+      return
+    }
 
     setErrorMsg('')
     setMensaje('')
@@ -258,8 +361,11 @@ const Estudios = ({ session, modoOscuro }) => {
       }
 
       setMensaje('El estudio médico fue eliminado correctamente.')
+
       await cargarEstudios()
     } catch (error) {
+      console.error('Error al eliminar el estudio:', error)
+
       setErrorMsg(
         error.message || 'Ocurrió un error al eliminar el estudio.'
       )
@@ -285,7 +391,9 @@ const Estudios = ({ session, modoOscuro }) => {
 
     const partes = fecha.split('-')
 
-    if (partes.length !== 3) return fecha
+    if (partes.length !== 3) {
+      return fecha
+    }
 
     return `${partes[2]}/${partes[1]}/${partes[0]}`
   }
@@ -299,16 +407,12 @@ const Estudios = ({ session, modoOscuro }) => {
       {/* Formulario */}
       <section
         className={`p-8 rounded-2xl shadow-md border-t-4 border-t-green-400 transition-colors ${
-          modoOscuro
-            ? 'bg-gray-800'
-            : 'bg-white'
+          modoOscuro ? 'bg-gray-800' : 'bg-white'
         }`}
       >
         <h2
           className={`text-2xl font-extrabold mb-2 ${
-            modoOscuro
-              ? 'text-white'
-              : 'text-gray-900'
+            modoOscuro ? 'text-white' : 'text-gray-900'
           }`}
         >
           Subir estudio médico
@@ -316,9 +420,7 @@ const Estudios = ({ session, modoOscuro }) => {
 
         <p
           className={`text-sm mb-6 ${
-            modoOscuro
-              ? 'text-gray-400'
-              : 'text-gray-500'
+            modoOscuro ? 'text-gray-400' : 'text-gray-500'
           }`}
         >
           Guarda análisis, radiografías, recetas, resultados o documentos
@@ -341,9 +443,7 @@ const Estudios = ({ session, modoOscuro }) => {
           <div>
             <label
               className={`block text-sm font-semibold mb-1 ${
-                modoOscuro
-                  ? 'text-gray-200'
-                  : 'text-gray-700'
+                modoOscuro ? 'text-gray-200' : 'text-gray-700'
               }`}
             >
               Nombre del estudio
@@ -362,9 +462,7 @@ const Estudios = ({ session, modoOscuro }) => {
           <div>
             <label
               className={`block text-sm font-semibold mb-1 ${
-                modoOscuro
-                  ? 'text-gray-200'
-                  : 'text-gray-700'
+                modoOscuro ? 'text-gray-200' : 'text-gray-700'
               }`}
             >
               Fecha del estudio
@@ -381,9 +479,7 @@ const Estudios = ({ session, modoOscuro }) => {
           <div>
             <label
               className={`block text-sm font-semibold mb-1 ${
-                modoOscuro
-                  ? 'text-gray-200'
-                  : 'text-gray-700'
+                modoOscuro ? 'text-gray-200' : 'text-gray-700'
               }`}
             >
               Descripción
@@ -401,9 +497,7 @@ const Estudios = ({ session, modoOscuro }) => {
           <div>
             <label
               className={`block text-sm font-semibold mb-1 ${
-                modoOscuro
-                  ? 'text-gray-200'
-                  : 'text-gray-700'
+                modoOscuro ? 'text-gray-200' : 'text-gray-700'
               }`}
             >
               Imagen o archivo PDF
@@ -424,9 +518,7 @@ const Estudios = ({ session, modoOscuro }) => {
 
             <p
               className={`text-xs mt-2 ${
-                modoOscuro
-                  ? 'text-gray-400'
-                  : 'text-gray-500'
+                modoOscuro ? 'text-gray-400' : 'text-gray-500'
               }`}
             >
               Formatos permitidos: PDF, JPG, PNG y WEBP. Máximo 6 MB.
@@ -467,9 +559,7 @@ const Estudios = ({ session, modoOscuro }) => {
       <section>
         <h2
           className={`text-2xl font-extrabold mb-2 ${
-            modoOscuro
-              ? 'text-white'
-              : 'text-gray-900'
+            modoOscuro ? 'text-white' : 'text-gray-900'
           }`}
         >
           Mis estudios médicos
@@ -477,9 +567,7 @@ const Estudios = ({ session, modoOscuro }) => {
 
         <p
           className={`text-sm mb-6 ${
-            modoOscuro
-              ? 'text-gray-400'
-              : 'text-gray-500'
+            modoOscuro ? 'text-gray-400' : 'text-gray-500'
           }`}
         >
           Consulta o elimina los documentos guardados en tu cuenta.
@@ -493,7 +581,9 @@ const Estudios = ({ session, modoOscuro }) => {
                 : 'border-gray-300 text-gray-500'
             }`}
           >
-            <p className="font-semibold">Cargando estudios...</p>
+            <p className="font-semibold">
+              Cargando estudios...
+            </p>
           </div>
         ) : estudios.length === 0 ? (
           <div
@@ -503,7 +593,9 @@ const Estudios = ({ session, modoOscuro }) => {
                 : 'border-gray-300 text-gray-500'
             }`}
           >
-            <span className="text-5xl block mb-4">📂</span>
+            <span className="text-5xl block mb-4">
+              📂
+            </span>
 
             <p className="font-semibold">
               No tienes estudios registrados.
@@ -590,15 +682,24 @@ const Estudios = ({ session, modoOscuro }) => {
                   <button
                     type="button"
                     onClick={() => abrirEstudio(estudio)}
-                    className="py-2 px-4 bg-green-100 hover:bg-green-200 text-green-800 font-bold rounded-lg transition-colors cursor-pointer"
+                    disabled={
+                      abriendoId === estudio.id ||
+                      eliminandoId === estudio.id
+                    }
+                    className="py-2 px-4 bg-green-100 hover:bg-green-200 disabled:opacity-50 disabled:cursor-not-allowed text-green-800 font-bold rounded-lg transition-colors cursor-pointer"
                   >
-                    Ver archivo
+                    {abriendoId === estudio.id
+                      ? 'Abriendo...'
+                      : 'Ver archivo'}
                   </button>
 
                   <button
                     type="button"
                     onClick={() => eliminarEstudio(estudio)}
-                    disabled={eliminandoId === estudio.id}
+                    disabled={
+                      eliminandoId === estudio.id ||
+                      abriendoId === estudio.id
+                    }
                     className="py-2 px-4 bg-red-100 hover:bg-red-200 disabled:opacity-50 disabled:cursor-not-allowed text-red-700 font-bold rounded-lg transition-colors cursor-pointer"
                   >
                     {eliminandoId === estudio.id
