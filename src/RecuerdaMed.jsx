@@ -4,7 +4,7 @@ import Med from "./Med";
 import CardTemplate from "./CardTemplate";
 import BotonModoOscuro from "./BotonModoOscuro";
 import Citas from "./citas";
-import Estudios from "./Estudios";
+import Estudios from "./estudios";
 
 const RecuerdaMed = ({ session, modoOscuro, setModoOscuro }) => {
   const [vista, setVista] = useState("inicio");
